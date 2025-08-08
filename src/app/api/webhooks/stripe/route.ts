@@ -1,8 +1,8 @@
 // src/app/api/webhooks/stripe/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe';
-import { createSubscription } from '@/lib/subscription';
-import { headers } from 'next/headers';
+import { verifyWebhook, stripe } from '@/lib/stripe';
+import { createSubscription, updateSubscriptionStatus } from '@/lib/subscription';
+import Stripe from 'stripe';
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,53 +10,103 @@ export async function POST(request: NextRequest) {
     const signature = request.headers.get('stripe-signature');
 
     if (!signature) {
-      console.error('No signature provided');
       return NextResponse.json({ error: 'No signature' }, { status: 400 });
     }
 
-    // For now, skip signature verification in development
-    // In production, you'd verify with: stripe.webhooks.constructEvent(body, signature, webhookSecret)
-    
-    const event = JSON.parse(body);
-    console.log('Webhook received:', event.type);
+    // Verify webhook
+    const event = verifyWebhook(body, signature);
 
-    // Handle the checkout completed event
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      
-      console.log('Processing checkout session:', session.id);
-      console.log('Subscription:', session.subscription);
-      console.log('Customer:', session.customer);
-      console.log('Metadata:', session.metadata);
+    console.log('Stripe webhook event:', event.type);
 
-      if (session.mode === 'subscription' && session.subscription) {
-        // Get the subscription details
-        const subscription = await stripe.subscriptions.retrieve(session.subscription);
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
         
-        // Extract user info from metadata
-        const userId = parseInt(session.metadata?.userId || '0');
-        const planId = session.metadata?.planId;
-
-        if (userId && planId) {
-          // Create subscription and unique ID
+        if (session.mode === 'subscription') {
+          const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
+          
           await createSubscription({
-            userId,
-            planType: planId,
+            userId: parseInt(session.metadata?.userId || '0'),
+            planType: session.metadata?.planId || 'monthly',
             stripeCustomerId: session.customer as string,
             stripeSubscriptionId: subscription.id,
             currentPeriodStart: new Date(subscription.current_period_start * 1000),
-            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            currentPeriodEnd: new Date(subscription.current_period_end * 1000)
           });
-
-          console.log(`Subscription created for user ${userId} with plan ${planId}`);
         }
+        break;
       }
+
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object as Stripe.Invoice;
+        if (invoice.subscription) {
+          const subscription = await stripe.subscriptions.retrieve(invoice.subscription as string);
+          
+          await updateSubscriptionStatus(
+            subscription.id,
+            'ACTIVE',
+            new Date(subscription.current_period_start * 1000),
+            new Date(subscription.current_period_end * 1000)
+          );
+        }
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice;
+        if (invoice.subscription) {
+          await updateSubscriptionStatus(
+            invoice.subscription as string,
+            'PAST_DUE'
+          );
+        }
+        break;
+      }
+
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object as Stripe.Subscription;
+        
+        let status: 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'EXPIRED';
+        
+        switch (subscription.status) {
+          case 'active':
+            status = 'ACTIVE';
+            break;
+          case 'past_due':
+            status = 'PAST_DUE';
+            break;
+          case 'canceled':
+            status = 'CANCELED';
+            break;
+          default:
+            status = 'EXPIRED';
+        }
+
+        await updateSubscriptionStatus(
+          subscription.id,
+          status,
+          new Date(subscription.current_period_start * 1000),
+          new Date(subscription.current_period_end * 1000)
+        );
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object as Stripe.Subscription;
+        await updateSubscriptionStatus(subscription.id, 'CANCELED');
+        break;
+      }
+
+      default:
+        console.log(`Unhandled event type: ${event.type}`);
     }
 
     return NextResponse.json({ received: true });
-
   } catch (error: any) {
     console.error('Webhook error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message },
+      { status: 400 }
+    );
   }
 }
