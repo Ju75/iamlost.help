@@ -1,4 +1,4 @@
-// src/components/FoundItemForm.tsx
+// src/components/FoundItemForm.tsx (Updated with better error handling)
 'use client';
 import { useState, useEffect } from 'react';
 import { normalizeDisplayId, validateAndSuggestId } from '@/lib/unique-id';
@@ -82,7 +82,7 @@ export default function FoundItemForm({ prefilledId, encryptedToken }: FoundItem
   };
 
   const validateForm = (): boolean => {
-    if (!idValidation?.isValid) {
+    if (!encryptedToken && !idValidation?.isValid) {
       setError('Please enter a valid item ID');
       return false;
     }
@@ -129,29 +129,52 @@ export default function FoundItemForm({ prefilledId, encryptedToken }: FoundItem
     setError('');
 
     try {
+      const payload = {
+        uniqueId: idValidation?.normalizedId || formData.uniqueId,
+        encryptedToken,
+        message: formData.message,
+        objectType: formData.objectType,
+        finderContact: formData.contactMethod === 'email' ? formData.email : formData.phone,
+        contactMethod: formData.contactMethod
+      };
+
+      console.log('Submitting payload:', payload);
+
       const response = await fetch('/api/found-item', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          uniqueId: idValidation.normalizedId,
-          encryptedToken,
-          message: formData.message,
-          objectType: formData.objectType,
-          finderContact: formData.contactMethod === 'email' ? formData.email : formData.phone,
-          contactMethod: formData.contactMethod
-        })
+        headers: { 
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
       });
 
-      const data = await response.json();
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to submit report');
+      // Get the response text first
+      const responseText = await response.text();
+      console.log('Response text:', responseText);
+
+      // Try to parse as JSON
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Response was not JSON:', responseText);
+        throw new Error(`Server returned non-JSON response: ${responseText.substring(0, 100)}...`);
       }
 
+      if (!response.ok) {
+        throw new Error(data.error || `Server error: ${response.status}`);
+      }
+
+      console.log('Success response:', data);
       setSuccess(true);
 
     } catch (err: any) {
-      setError(err.message);
+      console.error('Submit error:', err);
+      setError(err.message || 'Failed to submit report');
     } finally {
       setLoading(false);
     }
@@ -193,6 +216,16 @@ export default function FoundItemForm({ prefilledId, encryptedToken }: FoundItem
             Fill out the form below to contact the owner and help return their lost item.
           </p>
         </div>
+
+        {/* Debug Info in Development */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mb-4 p-4 bg-gray-100 rounded text-sm">
+            <strong>Debug Info:</strong><br/>
+            Prefilled ID: {prefilledId || 'None'}<br/>
+            Encrypted Token: {encryptedToken ? 'Present' : 'None'}<br/>
+            Current uniqueId: {formData.uniqueId}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Item ID */}
@@ -363,14 +396,14 @@ export default function FoundItemForm({ prefilledId, encryptedToken }: FoundItem
           {/* Error Message */}
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-              {error}
+              <strong>Error:</strong> {error}
             </div>
           )}
 
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={loading || !idValidation?.isValid}
+            disabled={loading || (!encryptedToken && !idValidation?.isValid)}
             className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-4 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (
