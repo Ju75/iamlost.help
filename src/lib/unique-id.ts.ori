@@ -1,4 +1,4 @@
-// src/lib/unique-id.ts - FIXED VERSION
+// src/lib/unique-id.ts
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 
@@ -6,17 +6,17 @@ const prisma = new PrismaClient();
 
 // Generate cryptographically secure random ID in ABC123 format
 function generateRandomId(): string {
-  const letters = 'ABCDEFGHJKLMNOPQRSTUVWXYZ'; // Remove I to avoid confusion
-  const numbers = '123456789'; // Remove 0 to avoid confusion with O
+  const letters = 'ABCDEFGHJKLMNOPQRSTUVWXYZ'; //remove I to not confuse with 1
+  const numbers = '123456789'; // remove 0 to not confuse with O
   
   let result = '';
   
-  // Generate 3 random letters (no I)
+  // Generate 3 random letters
   for (let i = 0; i < 3; i++) {
     result += letters[Math.floor(Math.random() * letters.length)];
   }
   
-  // Generate 3 random numbers (no 0)
+  // Generate 3 random numbers  
   for (let i = 0; i < 3; i++) {
     result += numbers[Math.floor(Math.random() * numbers.length)];
   }
@@ -104,45 +104,21 @@ export async function generateUniqueId(): Promise<{
 }
 
 // Get user ID from display ID (for found item forms)
-export async function getUserFromDisplayId(displayId: string, ipAddress?: string): Promise<{ userId: number; encryptedToken: string } | null> {
+export async function getUserFromDisplayId(displayId: string): Promise<number | null> {
   try {
     // Normalize the input first
     const normalizedId = normalizeDisplayId(displayId);
     
-    console.log('Looking up displayId:', normalizedId); // Debug log
-    
     const uniqueId = await prisma.uniqueId.findUnique({
       where: { displayId: normalizedId },
-      select: { 
-        userId: true, 
-        status: true, 
-        encryptedToken: true,
-        user: {
-          select: {
-            status: true
-          }
-        }
-      },
+      select: { userId: true, status: true },
     });
     
-    console.log('Database result:', uniqueId); // Debug log
-    
     if (!uniqueId || uniqueId.status !== 'ACTIVE') {
-      console.log('No uniqueId found or not active'); // Debug log
       return null;
     }
     
-    if (uniqueId.user.status !== 'ACTIVE') {
-      console.log('User not active'); // Debug log
-      return null;
-    }
-    
-    console.log('Returning:', { userId: uniqueId.userId, encryptedToken: uniqueId.encryptedToken }); // Debug log
-    
-    return {
-      userId: uniqueId.userId,
-      encryptedToken: uniqueId.encryptedToken
-    };
+    return uniqueId.userId;
   } catch (error) {
     console.error('Error getting user from display ID:', error);
     return null;
@@ -236,19 +212,19 @@ export async function generateTestIds(count: number = 10): Promise<string[]> {
   return ids;
 }
 
-// FIXED: Normalize user input to handle common mistakes
+// Normalize user input to handle common mistakes
 export function normalizeDisplayId(userInput: string): string {
   if (!userInput) return '';
   
   return userInput
     .toUpperCase()              // Convert to uppercase
-    .replace(/0/g, 'O')         // Replace 0 with O (we don't use 0 in IDs)
-    .replace(/I/g, '1')         // Replace I with 1 (we don't use I in IDs)
+    .replace(/0/g, 'O')         // Replace 0 with O (since we don't use 0)
+    .replace(/1/g, 'I')         // Replace 1 with I if you remove I from letters
     .replace(/[^A-Z0-9]/g, '')  // Remove any non-alphanumeric characters
     .substring(0, 6);           // Limit to 6 characters
 }
 
-// FIXED: Validate and suggest corrections for user input
+// Validate and suggest corrections for user input
 export function validateAndSuggestId(userInput: string): {
   isValid: boolean;
   normalizedId: string;
@@ -271,24 +247,10 @@ export function validateAndSuggestId(userInput: string): {
   const pattern = /^[A-Z]{3}[0-9]{3}$/;
   if (!pattern.test(normalizedId)) {
     errors.push('ID format should be 3 letters followed by 3 numbers (example: ABC123)');
-    
-    // Try to provide helpful suggestions
-    if (normalizedId.length === 6) {
-      // Analyze what might be wrong
-      const letters = normalizedId.substring(0, 3);
-      const numbers = normalizedId.substring(3, 6);
-      
-      if (!/^[A-Z]{3}$/.test(letters)) {
-        suggestions.push('First 3 characters should be letters (A-Z)');
-      }
-      if (!/^[0-9]{3}$/.test(numbers)) {
-        suggestions.push('Last 3 characters should be numbers (0-9)');
-      }
-    }
   }
   
   // Check if we made corrections
-  if (userInput.toUpperCase() !== normalizedId && normalizedId.length === 6) {
+  if (userInput.toUpperCase() !== normalizedId) {
     suggestions.push(`Did you mean: ${normalizedId}?`);
   }
   
@@ -299,3 +261,5 @@ export function validateAndSuggestId(userInput: string): {
     errors: errors.length > 0 ? errors : undefined
   };
 }
+
+
