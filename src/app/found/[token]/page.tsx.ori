@@ -1,5 +1,5 @@
 // src/app/found/[token]/page.tsx
-import FoundItemForm from '@/app/found/components/FoundItemForm';
+import FoundItemForm from '@/components/FoundItemForm';
 
 interface Props {
   params: Promise<{ token: string }>;

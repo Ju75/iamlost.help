@@ -39,24 +39,19 @@ export default function FoundItemForm({
 
   // If we have an encrypted token from props, start validation immediately
   useEffect(() => {
-    console.log('🔥 useEffect 1 triggered - encryptedToken:', encryptedToken, 'itemDetails:', itemDetails, 'loading:', loading);
     if (encryptedToken && !itemDetails && !loading) {
-      console.log('🚀 Starting validation from useEffect 1');
       setCurrentEncryptedToken(encryptedToken);
       setLoading(true);
       validateEncryptedToken(encryptedToken);
     }
-  }, []); // Empty dependency array - only run once
+  }, [encryptedToken]);
 
-  // Separate useEffect for when currentEncryptedToken is set manually (from manual ID entry)
+  // Separate useEffect for when currentEncryptedToken is set manually
   useEffect(() => {
-    console.log('🔥 useEffect 2 triggered - currentEncryptedToken:', currentEncryptedToken, 'itemDetails:', itemDetails, 'loading:', loading, 'encryptedToken:', encryptedToken);
     if (currentEncryptedToken && !itemDetails && !loading && !encryptedToken) {
-      console.log('🚀 Starting validation from useEffect 2');
-      setLoading(true);
       validateEncryptedToken(currentEncryptedToken);
     }
-  }, [currentEncryptedToken]); // Only when currentEncryptedToken changes
+  }, [currentEncryptedToken]);
 
   const validateEncryptedToken = async (tokenToValidate?: string) => {
     const token = tokenToValidate || currentEncryptedToken;

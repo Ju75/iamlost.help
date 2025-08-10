@@ -1,0 +1,182 @@
+// src/app/api/found-item/report/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { PrismaClient } from '@prisma/client';
+import { getUserFromEncryptedToken } from '@/lib/unique-id';
+import { sendFoundItemNotification } from '@/lib/email';
+
+const prisma = new PrismaClient();
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    console.log('Received found item report:', body);
+
+    const {
+      encryptedToken,
+      finderName,
+      finderEmail,
+      finderPhone,
+      message,
+      location
+    } = body;
+
+    // Validate required fields
+    if (!encryptedToken || !finderName || !finderEmail || !message || !location) {
+      return NextResponse.json(
+        { error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    // Find the user by encrypted token
+    const userId = await getUserFromEncryptedToken(encryptedToken);
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Invalid or expired link' },
+        { status: 404 }
+      );
+    }
+
+    // Get user details for notification
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        firstName: true,
+        lastName: true,
+        preferredLanguage: true,
+        status: true
+      }
+    });
+
+    if (!user || user.status !== 'ACTIVE') {
+      return NextResponse.json(
+        { error: 'User account is not active' },
+        { status: 404 }
+      );
+    }
+
+    // Check if user has active subscription
+    const subscription = await prisma.subscription.findFirst({
+      where: {
+        userId,
+        status: 'ACTIVE',
+        currentPeriodEnd: {
+          gt: new Date()
+        }
+      }
+    });
+
+    if (!subscription) {
+      return NextResponse.json(
+        { error: 'User subscription has expired. Please contact support.' },
+        { status: 402 }
+      );
+    }
+
+    // Get the unique ID record
+    const uniqueIdRecord = await prisma.uniqueId.findUnique({
+      where: { encryptedToken },
+      select: { id: true, displayId: true }
+    });
+
+    if (!uniqueIdRecord) {
+      return NextResponse.json(
+        { error: 'Unique ID not found' },
+        { status: 404 }
+      );
+    }
+
+    // Get request details for tracking
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    const realIp = request.headers.get('x-real-ip');
+    const clientIp = forwardedFor?.split(',')[0] || realIp || 'unknown';
+    const userAgent = request.headers.get('user-agent') || 'unknown';
+
+    // Create found item report
+    const foundReport = await prisma.foundItemReport.create({
+      data: {
+        uniqueIdId: uniqueIdRecord.id,
+        userId,
+        finderContact: finderEmail,
+        finderMessage: message,
+        finderLanguage: 'en',
+        objectType: 'item', // Default since we don't ask for object type in the form
+        finderIp: clientIp,
+        userAgent,
+        status: 'PENDING',
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        // Store additional finder details in metadata if your schema supports it
+        metadata: {
+          finderName,
+          finderPhone,
+          location
+        }
+      }
+    });
+
+    // Send notification email
+    try {
+      await sendFoundItemNotification({
+        userEmail: user.email,
+        userName: user.firstName || 'User',
+        itemType: 'item',
+        finderMessage: message,
+        finderContact: `${finderName} (${finderEmail}${finderPhone ? ', ' + finderPhone : ''})`,
+        contactMethod: 'email',
+        language: user.preferredLanguage || 'en',
+        reportId: foundReport.id,
+        // Add location and other details
+        additionalDetails: {
+          location,
+          finderName,
+          finderPhone
+        }
+      });
+    } catch (emailError) {
+      console.error('Failed to send notification email:', emailError);
+      // Don't fail the whole request if email fails
+    }
+
+    // Log the activity (optional)
+    try {
+      await prisma.auditLog.create({
+        data: {
+          userId,
+          action: 'FOUND_ITEM_REPORTED',
+          resourceType: 'FoundItemReport',
+          resourceId: foundReport.id,
+          details: {
+            uniqueId: uniqueIdRecord.displayId,
+            finderName,
+            location
+          },
+          ipAddress: clientIp,
+          userAgent
+        }
+      });
+    } catch (logError) {
+      console.error('Failed to log activity:', logError);
+    }
+
+    // Return success
+    return NextResponse.json({
+      success: true,
+      message: 'Found item report submitted successfully',
+      reportId: foundReport.id
+    });
+
+  } catch (error) {
+    console.error('Error processing found item report:', error);
+    
+    // Return a proper JSON error response
+    return NextResponse.json(
+      { 
+        error: error instanceof Error ? error.message : 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? String(error) : undefined
+      },
+      { status: 500 }
+    );
+  }
+}

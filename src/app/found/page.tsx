@@ -1,12 +1,65 @@
 // src/app/found/page.tsx
-import FoundItemForm from '@/components/FoundItemForm';
+'use client';
+import { useState, useEffect } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import FoundItemForm from '@/app/found/components/FoundItemForm';
 
-interface Props {
-  searchParams: { id?: string };
-}
+export default function FoundPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [encryptedToken, setEncryptedToken] = useState('');
 
-export default function FoundPage({ searchParams }: Props) {
-  const uniqueId = searchParams.id;
+  // Check if there's an ID in the URL parameters
+  const urlId = searchParams.get('id');
+
+  useEffect(() => {
+    // If there's an ID in the URL, encrypt it and get the token
+    if (urlId) {
+      encryptUrlId(urlId);
+    }
+  }, [urlId]);
+
+  const encryptUrlId = async (displayId: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/found-item/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayId: displayId.toUpperCase() })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Invalid ID');
+      }
+
+      // Set the encrypted token so the form can use it
+      setEncryptedToken(data.encryptedToken);
+      
+      // Update URL to remove the ID parameter for security (clean URL)
+      router.replace('/found', { scroll: false });
+      
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Show loading state only if we're processing a URL ID
+  if (loading && urlId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Validating item ID...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -23,7 +76,11 @@ export default function FoundPage({ searchParams }: Props) {
 
       {/* Main Content */}
       <main className="py-8">
-        <FoundItemForm prefilledId={uniqueId} />
+        <FoundItemForm 
+          prefilledId={urlId} 
+          encryptedToken={encryptedToken}
+          initialError={error}
+        />
       </main>
 
       {/* Footer */}
