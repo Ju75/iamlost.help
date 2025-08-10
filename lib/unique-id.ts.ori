@@ -1,0 +1,58 @@
+
+// In src/lib/unique-id.ts
+// REPLACE your current getUserFromDisplayId function with this EXACT version:
+
+export async function getUserFromDisplayId(displayId: string, ipAddress?: string): Promise<{ userId: number; encryptedToken: string } | null> {
+  try {
+    // Normalize the input first
+    const normalizedId = normalizeDisplayId(displayId);
+    
+    console.log('🔍 [getUserFromDisplayId] Looking up displayId:', normalizedId);
+    
+    const uniqueId = await prisma.uniqueId.findUnique({
+      where: { displayId: normalizedId },
+      select: { 
+        userId: true, 
+        status: true, 
+        encryptedToken: true,
+        user: {
+          select: {
+            status: true
+          }
+        }
+      },
+    });
+    
+    console.log('📊 [getUserFromDisplayId] Database result:', uniqueId ? 'FOUND' : 'NOT FOUND');
+    if (uniqueId) {
+      console.log('📊 [getUserFromDisplayId] Found token:', uniqueId.encryptedToken.substring(0, 20) + '...');
+      console.log('📊 [getUserFromDisplayId] User status:', uniqueId.user.status);
+      console.log('📊 [getUserFromDisplayId] UniqueId status:', uniqueId.status);
+    }
+    
+    if (!uniqueId || uniqueId.status !== 'ACTIVE') {
+      console.log('❌ [getUserFromDisplayId] No uniqueId found or not active');
+      return null;
+    }
+    
+    if (uniqueId.user.status !== 'ACTIVE') {
+      console.log('❌ [getUserFromDisplayId] User not active');
+      return null;
+    }
+    
+    const result = {
+      userId: uniqueId.userId,
+      encryptedToken: uniqueId.encryptedToken
+    };
+    
+    console.log('✅ [getUserFromDisplayId] Returning result:', {
+      userId: result.userId,
+      encryptedToken: result.encryptedToken.substring(0, 20) + '...'
+    });
+    
+    return result;
+  } catch (error) {
+    console.error('💥 [getUserFromDisplayId] Error:', error);
+    return null;
+  }
+}

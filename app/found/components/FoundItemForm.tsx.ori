@@ -1,0 +1,465 @@
+// src/app/found/components/FoundItemForm.tsx
+'use client';
+import { useState, useEffect, useRef } from 'react';
+import { normalizeDisplayId, validateAndSuggestId } from '@/lib/unique-id';
+
+interface Props {
+  encryptedToken?: string;
+  prefilledId?: string;
+  itemData?: any;
+  initialError?: string;
+}
+
+export default function FoundItemForm({ 
+  encryptedToken, 
+  prefilledId, 
+  itemData, 
+  initialError 
+}: Props) {
+  const [idInput, setIdInput] = useState(prefilledId || '');
+  const [suggestion, setSuggestion] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(initialError || '');
+  const [success, setSuccess] = useState(false);
+  const [itemDetails, setItemDetails] = useState(itemData || null);
+  const [currentEncryptedToken, setCurrentEncryptedToken] = useState(encryptedToken || '');
+  
+  // Form data
+  const [finderName, setFinderName] = useState('');
+  const [finderEmail, setFinderEmail] = useState('');
+  const [finderPhone, setFinderPhone] = useState('');
+  const [message, setMessage] = useState('');
+  const [location, setLocation] = useState('');
+  const [itemType, setItemType] = useState('');
+
+  // Refs to prevent infinite loops
+  const hasValidatedToken = useRef(false);
+  const isValidating = useRef(false);
+
+  // Debug logging
+  console.log('🔍 Render state:', {
+    hasEncryptedToken: !!encryptedToken,
+    hasCurrentToken: !!currentEncryptedToken,
+    hasItemDetails: !!itemDetails,
+    loading,
+    error: error || 'none',
+    hasValidatedToken: hasValidatedToken.current,
+    isValidating: isValidating.current
+  });
+
+  // Handle encrypted token validation - ONLY run once per token
+  useEffect(() => {
+    if (encryptedToken && !hasValidatedToken.current && !isValidating.current && !itemDetails) {
+      console.log('🚀 Starting token validation for:', encryptedToken.substring(0, 20) + '...');
+      hasValidatedToken.current = true;
+      isValidating.current = true;
+      setCurrentEncryptedToken(encryptedToken);
+      setLoading(true);
+      validateEncryptedToken(encryptedToken);
+    }
+  }, [encryptedToken]); // Only depend on encryptedToken
+
+  const validateEncryptedToken = async (token: string) => {
+    try {
+      console.log('📞 Making API call to validate token');
+      const response = await fetch('/api/found-item/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ encryptedToken: token })
+      });
+
+      console.log('📡 API response status:', response.status);
+      const data = await response.json();
+      console.log('📦 API response data:', data);
+
+      if (response.ok && data.success) {
+        console.log('✅ Setting item details:', data);
+        setItemDetails(data);
+        setError('');
+      } else {
+        console.log('❌ API returned error:', data.error);
+        setError(data.error || 'Invalid or expired link');
+        setItemDetails(null);
+      }
+    } catch (err: any) {
+      console.error('❌ Network error:', err);
+      setError('Network error. Please try again.');
+      setItemDetails(null);
+    } finally {
+      setLoading(false);
+      isValidating.current = false;
+      console.log('🏁 Validation finished');
+    }
+  };
+
+  const handleIdChange = (value: string) => {
+    const { normalizedId, suggestions } = validateAndSuggestId(value);
+    setIdInput(value);
+    setSuggestion(suggestions?.[0] || '');
+  };
+
+  const handleManualIdSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!idInput.trim()) return;
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch('/api/found-item/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayId: idInput.trim().toUpperCase() })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Invalid ID. Please check the ID and try again.');
+      }
+
+      // Redirect to encrypted URL instead of setting state
+      window.location.href = `/found/${data.encryptedToken}`;
+
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!finderName.trim() || !finderEmail.trim() || !message.trim() || !location.trim() || !itemType.trim()) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch('/api/found-item/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          encryptedToken: currentEncryptedToken,
+          finderName: finderName.trim(),
+          finderEmail: finderEmail.trim(),
+          finderPhone: finderPhone.trim(),
+          message: message.trim(),
+          location: location.trim(),
+          itemType: itemType.trim()
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to send report');
+      }
+
+      setSuccess(true);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // SUCCESS STATE
+  if (success) {
+    return (
+      <div className="max-w-2xl mx-auto px-4">
+        <div className="bg-green-50 border border-green-200 rounded-2xl p-8 text-center">
+          <div className="text-6xl mb-4">🎉</div>
+          <h2 className="text-2xl font-bold text-green-800 mb-4">
+            Thank You for Helping!
+          </h2>
+          <p className="text-green-700 mb-6">
+            The item owner has been notified and will contact you soon. You're awesome for helping reunite someone with their belongings!
+          </p>
+          <a 
+            href="/" 
+            className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg transition-colors"
+          >
+            Return to Homepage
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // LOADING STATE (only when we have a token and are validating)
+  if (loading && (encryptedToken || currentEncryptedToken) && !itemDetails) {
+    return (
+      <div className="max-w-2xl mx-auto px-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Validating item ID...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // CONTACT FORM STATE (when we have valid item details)
+  if ((encryptedToken || currentEncryptedToken) && itemDetails && itemDetails.success) {
+    return (
+      <div className="max-w-2xl mx-auto px-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8">
+          <div className="text-center mb-8">
+            <div className="text-6xl mb-4">🎯</div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              Item Found!
+            </h1>
+            <p className="text-xl text-gray-600">
+              Help return this item to its owner
+            </p>
+          </div>
+
+          {/* Item Details */}
+          <div className="bg-blue-50 rounded-lg p-6 mb-8">
+            <h3 className="font-semibold text-blue-800 mb-2">Item Information</h3>
+            <p className="text-blue-700">
+              You're helping return a lost item to its owner. Thank you for being awesome!
+            </p>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <p className="text-red-600">{error}</p>
+            </div>
+          )}
+
+          {/* Contact Form */}
+          <form onSubmit={handleReportSubmit} className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                What type of item did you find? *
+              </label>
+              <select
+                value={itemType}
+                onChange={(e) => setItemType(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                required
+              >
+                <option value="">Select item type</option>
+                <option value="keys">Keys</option>
+                <option value="wallet">Wallet</option>
+                <option value="phone">Phone</option>
+                <option value="bag">Bag/Purse</option>
+                <option value="laptop">Laptop</option>
+                <option value="headphones">Headphones</option>
+                <option value="jewelry">Jewelry</option>
+                <option value="glasses">Glasses</option>
+                <option value="camera">Camera</option>
+                <option value="documents">Documents</option>
+                <option value="clothing">Clothing</option>
+                <option value="sports-equipment">Sports Equipment</option>
+                <option value="electronics">Electronics</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Your Name *
+              </label>
+              <input
+                type="text"
+                value={finderName}
+                onChange={(e) => setFinderName(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                placeholder="Enter your name"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Your Email *
+              </label>
+              <input
+                type="email"
+                value={finderEmail}
+                onChange={(e) => setFinderEmail(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                placeholder="your.email@example.com"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Your Phone (Optional)
+              </label>
+              <input
+                type="tel"
+                value={finderPhone}
+                onChange={(e) => setFinderPhone(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                placeholder="+1 (555) 123-4567"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Where did you find it? *
+              </label>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                placeholder="e.g., Central Park near the fountain"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Message to Owner *
+              </label>
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                rows={4}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                placeholder="Hi! I found your item. Let me know how you'd like to arrange pickup..."
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:bg-gray-400"
+            >
+              {loading ? 'Sending...' : 'Contact Owner'}
+            </button>
+          </form>
+
+          <p className="text-xs text-gray-500 text-center mt-4">
+            Your contact information will be shared with the item owner so they can arrange pickup.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ERROR STATE (when we have a token but validation failed)
+  if ((encryptedToken || currentEncryptedToken) && error && !loading && hasValidatedToken.current) {
+    return (
+      <div className="max-w-2xl mx-auto px-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8">
+          <div className="text-center mb-8">
+            <div className="text-6xl mb-4">❌</div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              Invalid Link
+            </h1>
+            <p className="text-xl text-gray-600">
+              This link is invalid or has expired
+            </p>
+          </div>
+          
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <p className="text-red-600">{error}</p>
+          </div>
+          
+          <div className="text-center">
+            <a 
+              href="/found" 
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors"
+            >
+              Try Manual ID Entry
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // MANUAL ID ENTRY STATE (default fallback)
+  return (
+    <div className="max-w-2xl mx-auto px-4">
+      <div className="bg-white rounded-2xl shadow-lg p-8">
+        <div className="text-center mb-8">
+          <div className="text-6xl mb-4">🤝</div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Found Someone's Item?
+          </h1>
+          <p className="text-xl text-gray-600">
+            Enter the ID from the sticker to help return it
+          </p>
+        </div>
+
+        {/* Info Box */}
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+          <div className="flex">
+            <div className="text-yellow-400 mr-3">💡</div>
+            <div>
+              <p className="text-sm text-yellow-800">
+                <strong>Looking for:</strong> A 6-character code printed on the sticker
+              </p>
+              <p className="text-xs text-yellow-700 mt-1">
+                Loading here...<br/>
+                Or try: AAA999<br/>
+                Looking here...<br/>
+                If it says iamlost.help<br/>
+                Report Number: ABC123
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <p className="text-red-600">{error}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleManualIdSubmit} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Item ID
+            </label>
+            <input
+              type="text"
+              value={idInput}
+              onChange={(e) => handleIdChange(e.target.value)}
+              className="w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-center font-mono uppercase"
+              placeholder="Enter ID (e.g., ABC123)"
+              maxLength={6}
+              disabled={loading}
+            />
+            {suggestion && (
+              <div className="mt-2 text-blue-600 text-sm">
+                Did you mean: <strong>{suggestion}</strong>?
+                <button
+                  type="button"
+                  onClick={() => setIdInput(suggestion)}
+                  className="ml-2 text-blue-800 underline"
+                >
+                  Use this
+                </button>
+              </div>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={!idInput.trim() || loading}
+            className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:bg-gray-400"
+          >
+            {loading ? 'Validating...' : 'Continue'}
+          </button>
+        </form>
+
+        <p className="text-xs text-gray-500 text-center mt-4">
+          The ID is usually a 6-character code printed on the sticker (e.g., ABC123)
+        </p>
+      </div>
+    </div>
+  );
+}
