@@ -74,15 +74,20 @@ export default function FoundItemForm({
 
       const data = await response.json();
 
-      // API always returns success now, so just redirect with whatever token we get
+      if (!response.ok) {
+        // Instead of showing error, create a fake encrypted token and redirect
+        // This prevents people from knowing if an ID exists or not
+        const fakeToken = 'fake_' + btoa(idInput.trim().toUpperCase() + '_' + Date.now());
+        window.location.href = `/found/${fakeToken}`;
+        return;
+      }
+
+      // Redirect to the real encrypted URL
       window.location.href = `/found/${data.encryptedToken}`;
 
     } catch (err: any) {
-      // Even on network errors, create realistic fake token
-      const crypto = window.crypto || (window as any).msCrypto;
-      const array = new Uint8Array(32);
-      crypto.getRandomValues(array);
-      const fakeToken = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+      // Even on network errors, redirect to fake token to avoid revealing info
+      const fakeToken = 'fake_' + btoa(idInput.trim().toUpperCase() + '_' + Date.now());
       window.location.href = `/found/${fakeToken}`;
     } finally {
       setLoading(false);
@@ -101,8 +106,14 @@ export default function FoundItemForm({
     setError('');
 
     try {
-      // Check if this is a fake token by trying to validate it
-      // Real tokens will work, fake tokens will fail silently
+      // Check if this is a fake token (for invalid IDs)
+      if (encryptedToken?.startsWith('fake_')) {
+        // Simulate success but don't actually send anything
+        console.log('Fake token detected, simulating success');
+        setSuccess(true);
+        return;
+      }
+
       const response = await fetch('/api/found-item/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -117,10 +128,16 @@ export default function FoundItemForm({
         })
       });
 
-      // Always show success regardless of the response
-      // This prevents revealing whether the token was real or fake
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Even for real API errors, show success to avoid revealing info
+        console.log('API error but showing success for security:', data.error);
+        setSuccess(true);
+        return;
+      }
+
       setSuccess(true);
-      
     } catch (err: any) {
       // Even for network errors, show success to avoid revealing info
       console.log('Network error but showing success for security:', err.message);
