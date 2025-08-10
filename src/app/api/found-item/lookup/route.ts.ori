@@ -1,4 +1,6 @@
-// src/app/api/found-item/lookup/route.ts
+// STEP 1: First, let's add debugging to see what's happening
+// Update your src/app/api/found-item/lookup/route.ts with this version:
+
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { getUserFromDisplayId, normalizeDisplayId } from '@/lib/unique-id';
@@ -6,12 +8,9 @@ import { createHash } from 'crypto';
 
 const prisma = new PrismaClient();
 
-// Generate a realistic-looking encrypted token that's indistinguishable from real ones
 function generateFakeToken(input: string): string {
-  // Create a deterministic but realistic-looking token
-  // Use the same length and pattern as real encrypted tokens
   const hash = createHash('sha256').update(`fake_salt_${input}_${process.env.NEXTAUTH_SECRET || 'fallback'}`).digest('hex');
-  return hash.substring(0, 64); // Same length as real tokens
+  return hash.substring(0, 64);
 }
 
 export async function POST(request: NextRequest) {
@@ -19,9 +18,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { displayId } = body;
 
+    console.log('🔍 === LOOKUP API DEBUG ===');
+    console.log('🔍 Input displayId:', displayId);
+
     if (!displayId) {
-      // Always return a realistic fake token even for missing IDs
       const fakeToken = generateFakeToken('missing_id_' + Date.now());
+      console.log('❌ No displayId provided');
       return NextResponse.json({
         success: true,
         encryptedToken: fakeToken
@@ -29,12 +31,44 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedId = normalizeDisplayId(displayId);
+    console.log('🔍 Normalized ID:', normalizedId);
     
-    // Try to find the real user
-    const userId = await getUserFromDisplayId(normalizedId);
+    // THIS IS THE CRITICAL CALL - Let's see what it returns
+    const result = await getUserFromDisplayId(normalizedId);
+    console.log('📊 getUserFromDisplayId returned:', result);
+    console.log('📊 Type of result:', typeof result);
+    console.log('📊 Result keys:', result ? Object.keys(result) : 'null');
 
-    if (!userId) {
-      // ID doesn't exist - return realistic fake token
+    if (!result) {
+      const fakeToken = generateFakeToken(normalizedId);
+      console.log('❌ No result from getUserFromDisplayId, returning fake token:', fakeToken);
+      return NextResponse.json({
+        success: true,
+        encryptedToken: fakeToken
+      });
+    }
+
+    // Check if result has encryptedToken property
+    if (!result.encryptedToken) {
+      console.log('🚨 PROBLEM: result does not have encryptedToken property!');
+      console.log('🚨 Result structure:', JSON.stringify(result, null, 2));
+      
+      // Fallback: try to get the token directly from database
+      console.log('🔧 Attempting direct database lookup...');
+      const directLookup = await prisma.uniqueId.findUnique({
+        where: { displayId: normalizedId },
+        select: { encryptedToken: true, userId: true, status: true }
+      });
+      console.log('🔧 Direct lookup result:', directLookup);
+      
+      if (directLookup && directLookup.encryptedToken) {
+        console.log('✅ Found token via direct lookup:', directLookup.encryptedToken);
+        return NextResponse.json({
+          success: true,
+          encryptedToken: directLookup.encryptedToken
+        });
+      }
+      
       const fakeToken = generateFakeToken(normalizedId);
       return NextResponse.json({
         success: true,
@@ -42,66 +76,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Check if user is active
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { status: true }
-    });
-
-    if (!user || user.status !== 'ACTIVE') {
-      // User inactive - return realistic fake token
-      const fakeToken = generateFakeToken(normalizedId + '_inactive');
-      return NextResponse.json({
-        success: true,
-        encryptedToken: fakeToken
-      });
-    }
-
-    // Check subscription
-    const subscription = await prisma.subscription.findFirst({
-      where: {
-        userId,
-        status: 'ACTIVE',
-        currentPeriodEnd: {
-          gt: new Date()
-        }
-      }
-    });
-
-    if (!subscription) {
-      // No active subscription - return realistic fake token
-      const fakeToken = generateFakeToken(normalizedId + '_expired');
-      return NextResponse.json({
-        success: true,
-        encryptedToken: fakeToken
-      });
-    }
-
-    // Get the real encrypted token
-    const uniqueIdRecord = await prisma.uniqueId.findUnique({
-      where: { userId },
-      select: { encryptedToken: true }
-    });
-
-    if (!uniqueIdRecord?.encryptedToken) {
-      // No encrypted token found - return realistic fake token
-      const fakeToken = generateFakeToken(normalizedId + '_no_token');
-      return NextResponse.json({
-        success: true,
-        encryptedToken: fakeToken
-      });
-    }
-
-    // Return the real encrypted token
+    // If we get here, we should have the real token
+    console.log('✅ SUCCESS: Real token found:', result.encryptedToken);
     return NextResponse.json({
       success: true,
-      encryptedToken: uniqueIdRecord.encryptedToken
+      encryptedToken: result.encryptedToken
     });
 
   } catch (error) {
-    console.error('Error in lookup API:', error);
-    
-    // Even on errors, return realistic fake token
+    console.error('💥 Error in lookup API:', error);
     const fakeToken = generateFakeToken('error_' + Date.now());
     return NextResponse.json({
       success: true,

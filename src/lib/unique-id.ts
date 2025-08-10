@@ -1,4 +1,4 @@
-// src/lib/unique-id.ts - FIXED VERSION
+// src/lib/unique-id.ts - COMPLETE FILE
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 
@@ -103,13 +103,13 @@ export async function generateUniqueId(): Promise<{
   throw new Error('Failed to generate unique ID after maximum attempts');
 }
 
-// Get user ID from display ID (for found item forms)
+// Get user ID from display ID (for found item forms) - FIXED TO RETURN BOTH userId AND encryptedToken
 export async function getUserFromDisplayId(displayId: string, ipAddress?: string): Promise<{ userId: number; encryptedToken: string } | null> {
   try {
     // Normalize the input first
     const normalizedId = normalizeDisplayId(displayId);
     
-    console.log('Looking up displayId:', normalizedId); // Debug log
+    console.log('🔍 [getUserFromDisplayId] Looking up displayId:', normalizedId);
     
     const uniqueId = await prisma.uniqueId.findUnique({
       where: { displayId: normalizedId },
@@ -125,26 +125,36 @@ export async function getUserFromDisplayId(displayId: string, ipAddress?: string
       },
     });
     
-    console.log('Database result:', uniqueId); // Debug log
+    console.log('📊 [getUserFromDisplayId] Database result:', uniqueId ? 'FOUND' : 'NOT FOUND');
+    if (uniqueId) {
+      console.log('📊 [getUserFromDisplayId] Found token:', uniqueId.encryptedToken.substring(0, 20) + '...');
+      console.log('📊 [getUserFromDisplayId] User status:', uniqueId.user.status);
+      console.log('📊 [getUserFromDisplayId] UniqueId status:', uniqueId.status);
+    }
     
     if (!uniqueId || uniqueId.status !== 'ACTIVE') {
-      console.log('No uniqueId found or not active'); // Debug log
+      console.log('❌ [getUserFromDisplayId] No uniqueId found or not active');
       return null;
     }
     
     if (uniqueId.user.status !== 'ACTIVE') {
-      console.log('User not active'); // Debug log
+      console.log('❌ [getUserFromDisplayId] User not active');
       return null;
     }
     
-    console.log('Returning:', { userId: uniqueId.userId, encryptedToken: uniqueId.encryptedToken }); // Debug log
-    
-    return {
+    const result = {
       userId: uniqueId.userId,
       encryptedToken: uniqueId.encryptedToken
     };
+    
+    console.log('✅ [getUserFromDisplayId] Returning result:', {
+      userId: result.userId,
+      encryptedToken: result.encryptedToken.substring(0, 20) + '...'
+    });
+    
+    return result;
   } catch (error) {
-    console.error('Error getting user from display ID:', error);
+    console.error('💥 [getUserFromDisplayId] Error:', error);
     return null;
   }
 }
