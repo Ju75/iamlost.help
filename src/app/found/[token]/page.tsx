@@ -1,4 +1,4 @@
-// src/app/found/[token]/page.tsx
+// src/app/found/[token]/page.tsx - FIXED VERSION
 import FoundItemForm from '@/app/found/components/FoundItemForm';
 
 interface Props {
@@ -26,7 +26,11 @@ export default async function FoundTokenPage({ params }: Props) {
 
       {/* Main Content */}
       <main className="py-8">
-        <FoundItemForm encryptedToken={encryptedToken} />
+        {/* Pass token and force showing form directly */}
+        <FoundItemForm 
+          encryptedToken={encryptedToken} 
+          showFormDirectly={true}
+        />
       </main>
 
       {/* Footer */}
