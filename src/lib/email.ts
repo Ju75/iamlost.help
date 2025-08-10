@@ -1,24 +1,21 @@
 // src/lib/email.ts - FIXED VERSION
 import nodemailer from 'nodemailer';
 
-// Create transporter based on environment
+// Create transporter (you can use Gmail, SendGrid, or any SMTP provider)
 const createTransporter = () => {
-  // Check for Gmail configuration first
+  console.log('📧 Starting email send process...');
+  
   if (process.env.EMAIL_PROVIDER === 'gmail' && process.env.EMAIL_USER && process.env.EMAIL_APP_PASSWORD) {
     console.log('📧 Using Gmail SMTP for:', process.env.EMAIL_USER);
-    return nodemailer.createTransporter({
+    return nodemailer.createTransport({  // FIXED: createTransport (not createTransporter)
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_APP_PASSWORD
+        pass: process.env.EMAIL_APP_PASSWORD // Use App Password, not regular password
       }
     });
-  } 
-  
-  // Check for SendGrid
-  else if (process.env.EMAIL_PROVIDER === 'sendgrid' && process.env.SENDGRID_API_KEY) {
-    console.log('📧 Using SendGrid SMTP');
-    return nodemailer.createTransporter({
+  } else if (process.env.EMAIL_PROVIDER === 'sendgrid') {
+    return nodemailer.createTransport({
       host: 'smtp.sendgrid.net',
       port: 587,
       auth: {
@@ -26,12 +23,8 @@ const createTransporter = () => {
         pass: process.env.SENDGRID_API_KEY
       }
     });
-  } 
-  
-  // Check for custom SMTP
-  else if (process.env.EMAIL_PROVIDER === 'smtp' && process.env.SMTP_HOST) {
-    console.log('📧 Using custom SMTP:', process.env.SMTP_HOST);
-    return nodemailer.createTransporter({
+  } else if (process.env.EMAIL_PROVIDER === 'smtp') {
+    return nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587'),
       secure: process.env.SMTP_SECURE === 'true',
@@ -40,16 +33,12 @@ const createTransporter = () => {
         pass: process.env.SMTP_PASS
       }
     });
-  } 
-  
-  // Fallback to Ethereal for development/testing
-  else {
-    console.log('⚠️ Using Ethereal Email for testing (no real emails will be sent)');
-    console.log('💡 To send real emails, check your .env configuration');
-    return nodemailer.createTransporter({
+  } else {
+    // For development - use Ethereal Email (fake SMTP)
+    console.log('📧 Using development mode - emails will be logged only');
+    return nodemailer.createTransport({
       host: 'smtp.ethereal.email',
       port: 587,
-      secure: false,
       auth: {
         user: 'ethereal.user@ethereal.email',
         pass: 'ethereal.pass'
@@ -77,19 +66,17 @@ export async function sendFoundItemNotification({
   contactMethod: string;
   language: string;
   reportId: number;
-  additionalDetails?: any;
+  additionalDetails?: {
+    location?: string;
+    finderName?: string;
+    finderPhone?: string;
+  };
 }) {
   try {
-    console.log('📧 Starting email send process...');
     console.log('📧 Recipient:', userEmail);
     console.log('📧 Report ID:', reportId);
-    
-    const transporter = createTransporter();
 
-    // Test the connection first
-    console.log('🔄 Testing SMTP connection...');
-    await transporter.verify();
-    console.log('✅ SMTP connection verified');
+    const transporter = createTransporter();
 
     // Create email content
     const subject = `🎉 Great News! Someone Found Your ${itemType.charAt(0).toUpperCase() + itemType.slice(1)}`;
@@ -124,13 +111,13 @@ export async function sendFoundItemNotification({
               <div class="message-box">
                 <h3 style="margin-top: 0; color: #2563eb;">💬 Message from the Finder:</h3>
                 <p style="font-style: italic; margin-bottom: 0;">"${finderMessage}"</p>
+                ${additionalDetails?.location ? `<p style="margin-top: 10px;"><strong>Location:</strong> ${additionalDetails.location}</p>` : ''}
               </div>
               
               <div class="contact-box">
                 <h3 style="margin-top: 0;">📞 Contact Information</h3>
                 <p style="margin: 0; font-size: 18px;"><strong>${finderContact}</strong></p>
                 <p style="margin: 5px 0 0 0; opacity: 0.9;">Contact method: ${contactMethod}</p>
-                ${additionalDetails?.location ? `<p style="margin: 5px 0 0 0; opacity: 0.9;">Location found: ${additionalDetails.location}</p>` : ''}
               </div>
               
               <p><strong>Next Steps:</strong></p>
@@ -149,6 +136,8 @@ export async function sendFoundItemNotification({
             <div class="footer">
               <p>🌍 Helping people reunite with their belongings worldwide</p>
               <p>Report ID: #${reportId} | This email was sent because someone reported finding an item with your unique ID.</p>
+              <p><a href="https://iamlost.help/unsubscribe" style="color: #94a3b8;">Unsubscribe</a> | 
+                 <a href="https://iamlost.help/privacy" style="color: #94a3b8;">Privacy Policy</a></p>
             </div>
           </div>
         </body>
@@ -164,10 +153,10 @@ Great news! Someone found your ${itemType} and wants to return it to you.
 
 Message from the Finder:
 "${finderMessage}"
+${additionalDetails?.location ? `\nLocation: ${additionalDetails.location}` : ''}
 
 Contact Information:
 ${finderContact} (${contactMethod})
-${additionalDetails?.location ? `Location found: ${additionalDetails.location}` : ''}
 
 Next Steps:
 1. Contact the finder using the information above
@@ -179,10 +168,10 @@ We're so happy we could help reunite you with your belongings!
 Best regards,
 The iamlost.help Team
 
+---
+🌍 Helping people reunite with their belongings worldwide
 Report ID: #${reportId}
     `;
-
-    console.log('📤 Sending email...');
 
     // Send email
     const info = await transporter.sendMail({
@@ -196,28 +185,21 @@ Report ID: #${reportId}
     console.log('✅ Email sent successfully!');
     console.log('📧 Message ID:', info.messageId);
     
-    // For development/testing - show preview URL
     if (process.env.NODE_ENV === 'development') {
-      const previewUrl = nodemailer.getTestMessageUrl(info);
-      console.log('🔗 Preview URL:', previewUrl);
-      console.log('📧 Open this URL to see the email that would have been sent');
+      console.log('📧 Preview URL:', nodemailer.getTestMessageUrl(info));
     }
 
     return {
       success: true,
       messageId: info.messageId,
-      previewUrl: process.env.NODE_ENV === 'development' ? nodemailer.getTestMessageUrl(info) : null
+      previewUrl: nodemailer.getTestMessageUrl(info)
     };
 
   } catch (error) {
     console.error('❌ Email sending failed:', error);
-    
-    // Log detailed error for debugging
-    if (error instanceof Error) {
-      console.error('Error name:', error.name);
-      console.error('Error message:', error.message);
-      console.error('Error stack:', error.stack);
-    }
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
     
     // Don't throw - we don't want the found item report to fail just because email failed
     return {
