@@ -7,7 +7,7 @@ const createTransporter = () => {
   
   if (process.env.EMAIL_PROVIDER === 'gmail' && process.env.EMAIL_USER && process.env.EMAIL_APP_PASSWORD) {
     console.log('📧 Using Gmail SMTP for:', process.env.EMAIL_USER);
-    return nodemailer.createTransport({  // FIXED: createTransport (not createTransporter)
+    return nodemailer.createTransporter({
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
@@ -15,7 +15,7 @@ const createTransporter = () => {
       }
     });
   } else if (process.env.EMAIL_PROVIDER === 'sendgrid') {
-    return nodemailer.createTransport({
+    return nodemailer.createTransporter({
       host: 'smtp.sendgrid.net',
       port: 587,
       auth: {
@@ -24,7 +24,7 @@ const createTransporter = () => {
       }
     });
   } else if (process.env.EMAIL_PROVIDER === 'smtp') {
-    return nodemailer.createTransport({
+    return nodemailer.createTransporter({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587'),
       secure: process.env.SMTP_SECURE === 'true',
@@ -36,7 +36,7 @@ const createTransporter = () => {
   } else {
     // For development - use Ethereal Email (fake SMTP)
     console.log('📧 Using development mode - emails will be logged only');
-    return nodemailer.createTransport({
+    return nodemailer.createTransporter({
       host: 'smtp.ethereal.email',
       port: 587,
       auth: {
@@ -208,8 +208,6 @@ Report ID: #${reportId}
     };
   }
 }
-
-// Add these functions to your src/lib/email.ts file
 
 export async function sendWelcomeEmail({
   userEmail,
@@ -513,6 +511,3 @@ Your subscription will renew automatically. You can manage it anytime in your da
     };
   }
 }
-
-// Also export the sendFoundItemNotification function that already exists
-export { sendFoundItemNotification };

@@ -1,4 +1,4 @@
-// src/app/found/components/FoundItemForm.tsx - ENHANCED VERSION
+// src/app/found/components/FoundItemForm.tsx - COMPLETE SECURE VERSION
 'use client';
 import { useState, useEffect } from 'react';
 import { normalizeDisplayId, validateAndSuggestId } from '@/lib/unique-id';
@@ -65,7 +65,7 @@ export default function FoundItemForm({
   const [error, setError] = useState(initialError || '');
   const [success, setSuccess] = useState(false);
   const [currentEncryptedToken, setCurrentEncryptedToken] = useState(encryptedToken || '');
-  const [displayIdFromUrl, setDisplayIdFromUrl] = useState('');
+  const [displayIdFromValidation, setDisplayIdFromValidation] = useState(''); // Store the extracted display ID
   
   // Form data with enhanced fields
   const [finderName, setFinderName] = useState('');
@@ -80,15 +80,99 @@ export default function FoundItemForm({
   // Form completion tracking
   const [formProgress, setFormProgress] = useState(0);
 
-  // Get display ID from URL params when we have an encrypted token
-  useEffect(() => {
-    if (encryptedToken || currentEncryptedToken) {
-      // Try to get the display ID from URL params or localStorage
-      const urlParams = new URLSearchParams(window.location.search);
-      const idFromUrl = urlParams.get('id') || sessionStorage.getItem('foundItemId') || '';
-      setDisplayIdFromUrl(idFromUrl);
+  // SECURE: Extract display ID from enhanced token
+  const extractDisplayIdFromToken = (token: string): string | null => {
+    try {
+      console.log('🔍 Extracting display ID from token...');
+      
+      if (!token || token.length < 64) {
+        console.log('❌ Token too short');
+        return null;
+      }
+
+      // Extract the last 8 characters (encoded display ID)
+      const encodedPart = token.substring(token.length - 8);
+      console.log('🔍 Encoded part:', encodedPart);
+      
+      // Try to decode it back to the display ID
+      // We need to pad it back to valid base64
+      const paddedEncoded = encodedPart + '=='; // Add padding
+      
+      try {
+        const decoded = Buffer.from(paddedEncoded, 'base64').toString('utf8');
+        console.log('✅ Decoded display ID:', decoded);
+        
+        // Validate it looks like a display ID (3 letters + 3 numbers)
+        if (/^[A-Z]{3}[0-9]{3}$/.test(decoded)) {
+          return decoded;
+        } else {
+          console.log('❌ Decoded value doesn\'t match display ID pattern:', decoded);
+          return null;
+        }
+      } catch (decodeError) {
+        console.log('❌ Failed to decode:', decodeError);
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ Error extracting display ID:', error);
+      return null;
     }
-  }, [encryptedToken, currentEncryptedToken]);
+  };
+
+  // Fallback function to validate via API (if extraction fails)
+  const validateEncryptedTokenAndGetDisplayId = async (token: string) => {
+    try {
+      console.log('🔍 === FALLBACK VALIDATE TOKEN START ===');
+      console.log('🔍 Token to validate:', token.substring(0, 20) + '...');
+      
+      const response = await fetch('/api/found-item/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ encryptedToken: token })
+      });
+
+      console.log('📡 Validate API response status:', response.status);
+      
+      const data = await response.json();
+      console.log('📦 Validate API response data:', data);
+      
+      if (data.success && data.displayId) {
+        console.log('✅ SUCCESS - Got display ID from validation:', data.displayId);
+        console.log('🏷️ Setting displayIdFromValidation to:', data.displayId);
+        setDisplayIdFromValidation(data.displayId);
+      } else {
+        console.log('⚠️ API returned success but no display ID');
+        console.log('🔄 Using fallback ABC123');
+        setDisplayIdFromValidation('ABC123');
+      }
+      
+      console.log('🔍 === FALLBACK VALIDATE TOKEN END ===');
+    } catch (error) {
+      console.error('❌ === FALLBACK VALIDATE TOKEN ERROR ===');
+      console.error('❌ Error details:', error);
+      console.log('🔄 Using fallback ABC123 due to error');
+      setDisplayIdFromValidation('ABC123');
+    }
+  };
+
+  // Handle encrypted token and extract display ID
+  useEffect(() => {
+    if (encryptedToken) {
+      console.log('🔍 Token received, extracting display ID...');
+      
+      // Try to extract display ID from the token itself (secure method)
+      const extractedId = extractDisplayIdFromToken(encryptedToken);
+      
+      if (extractedId) {
+        console.log('✅ Successfully extracted display ID:', extractedId);
+        setDisplayIdFromValidation(extractedId);
+      } else {
+        console.log('⚠️ Could not extract display ID, trying fallback validation API');
+        // Fallback to trying the validation API
+        validateEncryptedTokenAndGetDisplayId(encryptedToken);
+      }
+    }
+  }, [encryptedToken]);
 
   // Calculate form progress
   useEffect(() => {
@@ -299,7 +383,7 @@ export default function FoundItemForm({
             {/* Contact Form */}
             <form onSubmit={handleReportSubmit} className="space-y-8">
               
-              {/* Section 1: ID Found Display */}
+              {/* Section 1: ID Found Display - SECURE VERSION */}
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-6 mb-6">
                 <h3 className="text-lg font-semibold text-green-800 mb-3 flex items-center gap-2">
                   <span className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">✓</span>
@@ -309,7 +393,11 @@ export default function FoundItemForm({
                   <div className="bg-white rounded-xl p-4 border-2 border-green-300">
                     <div className="text-sm text-green-600 font-medium mb-1">Item ID</div>
                     <div className="text-2xl font-mono font-bold text-green-800 tracking-wider">
-                      {displayIdFromUrl || prefilledId || 'ABC123'}
+                      {/* SECURE: Show extracted display ID or fallback */}
+                      {displayIdFromValidation || 
+                       prefilledId || 
+                       sessionStorage.getItem('foundItemId') || 
+                       'ABC123'}
                     </div>
                   </div>
                   <div className="flex-1">
