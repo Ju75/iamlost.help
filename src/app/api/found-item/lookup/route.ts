@@ -1,4 +1,4 @@
-// src/app/api/found-item/lookup/route.ts - CLEAN VERSION
+// src/app/api/found-item/lookup/route.ts - FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { getUserFromDisplayId, normalizeDisplayId } from '@/lib/unique-id';
@@ -74,11 +74,13 @@ export async function POST(request: NextRequest) {
     }
 
     // ✅ SUCCESS - Return the REAL encrypted token from database
+    // FIXED: Also include the original display ID for real tokens
     console.log('✅ SUCCESS: Returning REAL token:', result.encryptedToken);
     
     return NextResponse.json({
       success: true,
-      encryptedToken: result.encryptedToken
+      encryptedToken: result.encryptedToken,
+      _originalId: normalizedId  // FIXED: Include original ID for real tokens too
     });
 
   } catch (error) {

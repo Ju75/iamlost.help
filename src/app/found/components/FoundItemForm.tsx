@@ -1,4 +1,4 @@
-// src/app/found/components/FoundItemForm.tsx - ENHANCED VERSION
+// src/app/found/components/FoundItemForm.tsx - FIXED VERSION (No ID Flicker)
 'use client';
 import { useState, useEffect } from 'react';
 import { normalizeDisplayId, validateAndSuggestId } from '@/lib/unique-id';
@@ -64,8 +64,10 @@ export default function FoundItemForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError || '');
   const [success, setSuccess] = useState(false);
+  // FIXED: Initialize currentEncryptedToken from prop, not from complex logic
   const [currentEncryptedToken, setCurrentEncryptedToken] = useState(encryptedToken || '');
-  const [displayIdFromUrl, setDisplayIdFromUrl] = useState('');
+  const [displayIdFromUrl, setDisplayIdFromUrl] = useState(''); // FIXED: Back to displayIdFromUrl
+  const [isLoadingDisplayId, setIsLoadingDisplayId] = useState(false); // FIXED: Add loading state
   
   // Form data with enhanced fields
   const [finderName, setFinderName] = useState('');
@@ -82,25 +84,61 @@ export default function FoundItemForm({
 
   // Get display ID from URL params when we have an encrypted token
   useEffect(() => {
-    if (encryptedToken || currentEncryptedToken) {
+    // FIXED: Get token from URL path if not provided as prop
+    const pathToken = typeof window !== 'undefined' ? window.location.pathname.split('/found/')[1] : null;
+    const tokenToUse = encryptedToken || currentEncryptedToken || pathToken;
+    
+    console.log('🔍 Token detection:', { encryptedToken, currentEncryptedToken, pathToken, tokenToUse });
+    
+    if (tokenToUse && tokenToUse !== '[token]') {
+      // FIXED: Set the current token and loading state
+      setCurrentEncryptedToken(tokenToUse);
+      setIsLoadingDisplayId(true);
+      
       // Try to get the original ID from sessionStorage first (for fake IDs)
       if (typeof window !== 'undefined') {
         const originalId = sessionStorage.getItem('foundItemOriginalId');
         if (originalId) {
           console.log('📦 Found original ID in sessionStorage:', originalId);
           setDisplayIdFromUrl(originalId);
+          setIsLoadingDisplayId(false); // FIXED: Set loading to false
           // Clear it after use to prevent reuse
           sessionStorage.removeItem('foundItemOriginalId');
           return;
         }
       }
       
-      // Fallback to URL params or localStorage for real IDs
-      const urlParams = new URLSearchParams(window.location.search);
-      const idFromUrl = urlParams.get('id') || sessionStorage.getItem('foundItemId') || '';
-      setDisplayIdFromUrl(idFromUrl);
+      // Fallback: fetch from server for real IDs
+      fetchDisplayIdFromServer(tokenToUse);
     }
   }, [encryptedToken, currentEncryptedToken]);
+
+  const fetchDisplayIdFromServer = async (token: string) => {
+    try {
+      console.log('🔍 Fetching display ID for token:', token.substring(0, 20) + '...');
+      
+      const response = await fetch('/api/found-item/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ encryptedToken: token })
+      });
+
+      const data = await response.json();
+      
+      if (data.success && data.displayId) {
+        console.log('✅ Got display ID from server:', data.displayId);
+        setDisplayIdFromUrl(data.displayId);
+      } else {
+        console.log('❌ Failed to get display ID from server');
+        setDisplayIdFromUrl('FOUND');
+      }
+    } catch (error) {
+      console.error('Error fetching display ID:', error);
+      setDisplayIdFromUrl('FOUND');
+    } finally {
+      setIsLoadingDisplayId(false); // FIXED: Always set loading to false
+    }
+  };
 
   // Calculate form progress
   useEffect(() => {
@@ -176,11 +214,14 @@ export default function FoundItemForm({
     setError('');
 
     try {
+      // FIXED: Debug log to see what token we're sending
+      console.log('🚀 Submitting report with token:', currentEncryptedToken);
+      
       const response = await fetch('/api/found-item/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          encryptedToken: currentEncryptedToken,
+          encryptedToken: currentEncryptedToken, // FIXED: Explicitly use currentEncryptedToken variable
           finderName: finderName.trim(),
           finderEmail: finderEmail.trim(),
           finderPhone: finderPhone.trim(),
@@ -309,6 +350,28 @@ export default function FoundItemForm({
               </div>
             </div>
 
+            {/* Section 1: ID Found Display */}
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-6 mb-6">
+              <h3 className="text-lg font-semibold text-green-800 mb-3 flex items-center gap-2">
+                <span className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">✓</span>
+                ID Found
+              </h3>
+              <div className="flex items-center gap-4">
+                <div className="bg-white rounded-xl p-4 border-2 border-green-300">
+                  <div className="text-sm text-green-600 font-medium mb-1">Item ID</div>
+                  <div className="text-2xl font-mono font-bold text-green-800 tracking-wider">
+                    {/* FIXED: Show loading or the actual ID - back to simple logic */}
+                    {displayIdFromUrl || prefilledId || 'LOADING...'}
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <p className="text-green-700 text-sm leading-relaxed">
+                    Great! We found the owner for this ID. Please fill out the form below so they can contact you and arrange pickup.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {error && (
               <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 mb-6 flex items-start gap-3">
                 <div className="text-red-500 text-xl">⚠️</div>
@@ -319,27 +382,6 @@ export default function FoundItemForm({
             {/* Contact Form */}
             <form onSubmit={handleReportSubmit} className="space-y-8">
               
-              {/* Section 1: ID Found Display */}
-              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-6 mb-6">
-                <h3 className="text-lg font-semibold text-green-800 mb-3 flex items-center gap-2">
-                  <span className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">✓</span>
-                  ID Found
-                </h3>
-                <div className="flex items-center gap-4">
-                  <div className="bg-white rounded-xl p-4 border-2 border-green-300">
-                    <div className="text-sm text-green-600 font-medium mb-1">Item ID</div>
-                    <div className="text-2xl font-mono font-bold text-green-800 tracking-wider">
-                      {displayIdFromUrl || prefilledId || 'ABC123'}
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-green-700 text-sm leading-relaxed">
-                      Great! We found the owner for this ID. Please fill out the form below so they can contact you and arrange pickup.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
               {/* Section 2: Item Information */}
               <div className="bg-gray-50 rounded-2xl p-6">
                 <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
@@ -658,7 +700,7 @@ export default function FoundItemForm({
                 <div className="flex items-center justify-center gap-3">
                   <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
                   Validating ID...
                 </div>

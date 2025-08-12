@@ -1,4 +1,4 @@
-// src/app/api/found-item/validate/route.ts - COMPLETE VERSION
+// src/app/api/found-item/validate/route.ts - FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { getUserFromEncryptedToken } from '@/lib/unique-id';
@@ -48,77 +48,61 @@ export async function POST(request: NextRequest) {
 
     console.log('🔐 Validating token:', encryptedToken.substring(0, 20) + '...');
 
-    // Try to find the user by encrypted token (for real users)
-    let userId = null;
+    // Try to find the real display ID from the encrypted token
     try {
-      userId = await getUserFromEncryptedToken(encryptedToken);
-      console.log('👤 User ID from token:', userId);
-    } catch (error) {
-      console.log('👤 No real user found for token');
-    }
-
-    if (userId) {
-      // Real user found - do full validation
-      try {
-        const user = await prisma.user.findUnique({
-          where: { id: userId },
-          select: {
-            email: true,
-            firstName: true,
-            lastName: true,
-            status: true
-          }
-        });
-
-        console.log('👤 User found:', user ? 'YES' : 'NO');
-
-        if (user && user.status === 'ACTIVE') {
-          const subscription = await prisma.subscription.findFirst({
-            where: {
-              userId,
-              status: 'ACTIVE',
-              currentPeriodEnd: {
-                gt: new Date()
-              }
-            }
-          });
-
-          console.log('💳 Subscription found:', subscription ? 'YES' : 'NO');
-
-          if (subscription) {
-            const uniqueIdRecord = await prisma.uniqueId.findUnique({
-              where: { encryptedToken },
-              select: { 
-                displayId: true,
-                id: true
-              }
-            });
-
-            console.log('🆔 Unique ID record found:', uniqueIdRecord ? 'YES' : 'NO');
-
-            if (uniqueIdRecord) {
-              console.log('✅ Real user validation successful');
-
-              const responseData = {
-                success: true,
-                displayId: uniqueIdRecord.displayId,
-                isRealUser: true
-              };
-
-              console.log('📤 Returning real user data:', responseData);
-              return NextResponse.json(responseData);
+      const uniqueIdRecord = await prisma.uniqueId.findUnique({
+        where: { encryptedToken },
+        select: { 
+          displayId: true,
+          userId: true,
+          status: true,
+          user: {
+            select: {
+              status: true
             }
           }
         }
-      } catch (error) {
-        console.log('Error validating real user, falling back to fake user behavior');
+      });
+
+      console.log('👤 Database lookup result:', uniqueIdRecord ? 'FOUND' : 'NOT FOUND');
+
+      if (uniqueIdRecord && uniqueIdRecord.status === 'ACTIVE' && uniqueIdRecord.user.status === 'ACTIVE') {
+        // Check if user has active subscription
+        const subscription = await prisma.subscription.findFirst({
+          where: {
+            userId: uniqueIdRecord.userId,
+            status: 'ACTIVE',
+            currentPeriodEnd: {
+              gt: new Date()
+            }
+          }
+        });
+
+        console.log('💳 Subscription found:', subscription ? 'YES' : 'NO');
+
+        if (subscription) {
+          console.log('✅ Real user validation successful');
+
+          const responseData = {
+            success: true,
+            displayId: uniqueIdRecord.displayId, // FIXED: Return the REAL display ID from database
+            isRealUser: true
+          };
+
+          console.log('📤 Returning real user data:', responseData);
+          return NextResponse.json(responseData);
+        }
       }
+    } catch (error) {
+      console.log('Error validating real user, falling back to fake user behavior');
     }
 
-    // For fake tokens, return a deterministic ID
-    // The client should handle getting the original ID from sessionStorage
+    // For fake tokens, check if we have the original ID in sessionStorage (handled client-side)
+    // or return a deterministic ID based on the token
     console.log('✅ Fake ID validation - returning deterministic ID');
 
+    // Check if this might be a fake token with stored original ID
+    // The client should handle getting the original ID from sessionStorage
     const responseData = {
       success: true,
       displayId: generateDeterministicIdFromToken(encryptedToken),
