@@ -83,7 +83,19 @@ export default function FoundItemForm({
   // Get display ID from URL params when we have an encrypted token
   useEffect(() => {
     if (encryptedToken || currentEncryptedToken) {
-      // Try to get the display ID from URL params or localStorage
+      // Try to get the original ID from sessionStorage first (for fake IDs)
+      if (typeof window !== 'undefined') {
+        const originalId = sessionStorage.getItem('foundItemOriginalId');
+        if (originalId) {
+          console.log('📦 Found original ID in sessionStorage:', originalId);
+          setDisplayIdFromUrl(originalId);
+          // Clear it after use to prevent reuse
+          sessionStorage.removeItem('foundItemOriginalId');
+          return;
+        }
+      }
+      
+      // Fallback to URL params or localStorage for real IDs
       const urlParams = new URLSearchParams(window.location.search);
       const idFromUrl = urlParams.get('id') || sessionStorage.getItem('foundItemId') || '';
       setDisplayIdFromUrl(idFromUrl);
@@ -131,6 +143,12 @@ export default function FoundItemForm({
       });
 
       const data = await response.json();
+      
+      // Store original ID if this is a fake token (for preserving user input)
+      if (data._originalId) {
+        sessionStorage.setItem('foundItemOriginalId', data._originalId);
+      }
+      
       window.location.href = `/found/${data.encryptedToken}`;
 
     } catch (err: any) {
@@ -138,6 +156,8 @@ export default function FoundItemForm({
       const array = new Uint8Array(32);
       crypto.getRandomValues(array);
       const fakeToken = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+      // Store the original ID for fake tokens
+      sessionStorage.setItem('foundItemOriginalId', idInput.trim().toUpperCase());
       window.location.href = `/found/${fakeToken}`;
     } finally {
       setLoading(false);

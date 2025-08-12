@@ -11,19 +11,42 @@ export default function HomePage() {
   useEffect(() => {
     const urlId = searchParams.get('id');
     if (urlId) {
-      // Auto-process the ID from URL
+      console.log('🔗 URL ID detected:', urlId);
       setSearchId(urlId);
-      handleFoundItemSearch(null, urlId);
+      
+      // Process the URL ID directly
+      const processUrlId = async () => {
+        try {
+          const response = await fetch('/api/found-item/lookup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ displayId: urlId.trim().toUpperCase() })
+          });
+
+          const data = await response.json();
+          
+          if (data._originalId) {
+            sessionStorage.setItem('foundItemOriginalId', data._originalId);
+          }
+          
+          window.location.href = `/found/${data.encryptedToken}`;
+        } catch (error) {
+          console.error('URL ID processing error:', error);
+        }
+      };
+      
+      processUrlId();
     }
   }, [searchParams]);
 
-  const handleFoundItemSearch = async (e?: React.FormEvent | null, urlProvidedId?: string) => {
-    if (e) e.preventDefault();
+  const handleFoundItemSearch = async (e: React.FormEvent, urlProvidedId?: string) => {
+    e.preventDefault();
     
     const idToProcess = urlProvidedId || searchId;
     if (!idToProcess.trim()) return;
 
-    // Show loading state (optional - you can add a loading state to your homepage)
+    console.log('🚀 Starting search for ID:', idToProcess);
+
     try {
       // Call the lookup API to get the encrypted token
       const response = await fetch('/api/found-item/lookup', {
@@ -33,6 +56,7 @@ export default function HomePage() {
     });
 
     const data = await response.json();
+    console.log('📥 Lookup response:', data);
 
     if (!response.ok) {
       // If ID not found, show error or redirect to found page with error
@@ -40,6 +64,13 @@ export default function HomePage() {
       return;
     }
 
+    // Store original ID if this is a fake token (for preserving user input)
+    if (data._originalId) {
+      console.log('💾 Storing original ID in sessionStorage:', data._originalId);
+      sessionStorage.setItem('foundItemOriginalId', data._originalId);
+    }
+
+    console.log('🔄 Redirecting to:', `/found/${data.encryptedToken}`);
     // Redirect to encrypted URL
     window.location.href = `/found/${data.encryptedToken}`;
 
@@ -167,7 +198,7 @@ export default function HomePage() {
               Enter the ID from the sticker to help return it to its owner
             </p>
             
-            <form onSubmit={handleFoundItemSearch} className="max-w-md mx-auto">
+            <form onSubmit={(e) => handleFoundItemSearch(e)} className="max-w-md mx-auto">
               <div className="flex gap-4">
                 <input
                   type="text"
@@ -179,7 +210,8 @@ export default function HomePage() {
                 />
                 <button
                   type="submit"
-                  className="bg-green-600 hover:bg-green-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
+                  disabled={!searchId.trim()}
+                  className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-lg transition-colors"
                 >
                   Help Return Item
                 </button>

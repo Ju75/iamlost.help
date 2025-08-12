@@ -6,10 +6,14 @@ import { createHash } from 'crypto';
 
 const prisma = new PrismaClient();
 
-// Generate a realistic-looking encrypted token that's indistinguishable from real ones
-function generateFakeToken(input: string): string {
-  const hash = createHash('sha256').update(`fake_salt_${input}_${process.env.NEXTAUTH_SECRET || 'fallback'}`).digest('hex');
-  return hash.substring(0, 64);
+// Generate a fake token that looks identical to real ones
+function generateFakeToken(originalDisplayId: string): string {
+  // Generate a realistic 64-character hex token that looks identical to real tokens
+  const hash = createHash('sha256')
+    .update(`fake_salt_${originalDisplayId}_${Date.now()}_${Math.random()}_${process.env.NEXTAUTH_SECRET || 'fallback'}`)
+    .digest('hex');
+  
+  return hash;
 }
 
 export async function POST(request: NextRequest) {
@@ -21,7 +25,7 @@ export async function POST(request: NextRequest) {
     console.log('🔍 Input displayId:', displayId);
 
     if (!displayId) {
-      const fakeToken = generateFakeToken('missing_id_' + Date.now());
+      const fakeToken = generateFakeToken('DEMO01');
       console.log('❌ No displayId provided');
       return NextResponse.json({
         success: true,
@@ -37,11 +41,14 @@ export async function POST(request: NextRequest) {
     console.log('📊 getUserFromDisplayId returned:', result ? 'FOUND' : 'NOT FOUND');
 
     if (!result) {
+      // Generate fake token
       const fakeToken = generateFakeToken(normalizedId);
-      console.log('❌ No result from getUserFromDisplayId, returning fake token');
+      console.log('❌ No result from getUserFromDisplayId, returning fake token for:', normalizedId);
       return NextResponse.json({
         success: true,
-        encryptedToken: fakeToken
+        encryptedToken: fakeToken,
+        // Add the original ID in the response so the client can store it
+        _originalId: normalizedId
       });
     }
 
@@ -57,17 +64,17 @@ export async function POST(request: NextRequest) {
     });
 
     if (!subscription) {
-      console.log('❌ No active subscription, returning fake token');
-      const fakeToken = generateFakeToken(normalizedId + '_expired');
+      console.log('❌ No active subscription, returning fake token for:', normalizedId);
+      const fakeToken = generateFakeToken(normalizedId);
       return NextResponse.json({
         success: true,
-        encryptedToken: fakeToken
+        encryptedToken: fakeToken,
+        _originalId: normalizedId
       });
     }
 
     // ✅ SUCCESS - Return the REAL encrypted token from database
     console.log('✅ SUCCESS: Returning REAL token:', result.encryptedToken);
-    console.log('✅ Expected token should be: c39328af99cc3555ecd6c6ce2e373b2c8befbc366d05cad40e47108f2ebc7f1c');
     
     return NextResponse.json({
       success: true,
@@ -76,10 +83,11 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('💥 Error in lookup API:', error);
-    const fakeToken = generateFakeToken('error_' + Date.now());
+    const fakeToken = generateFakeToken('ERROR1');
     return NextResponse.json({
       success: true,
-      encryptedToken: fakeToken
+      encryptedToken: fakeToken,
+      _originalId: 'ERROR1'
     });
   }
 }

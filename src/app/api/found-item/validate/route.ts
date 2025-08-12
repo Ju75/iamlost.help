@@ -1,4 +1,4 @@
-// src/app/api/found-item/validate/route.ts
+// src/app/api/found-item/validate/route.ts - COMPLETE VERSION
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { getUserFromEncryptedToken } from '@/lib/unique-id';
@@ -6,11 +6,26 @@ import { createHash } from 'crypto';
 
 const prisma = new PrismaClient();
 
-// Generate a display ID from token for fake IDs (same logic as lookup/route.ts)
-function generateDisplayIdFromToken(token: string): string {
-  // For fake tokens, just return a consistent display ID
-  const hash = createHash('sha256').update(`display_${token}_${process.env.NEXTAUTH_SECRET || 'fallback'}`).digest('hex');
-  return hash.substring(0, 6).toUpperCase();
+// Generate deterministic ID from token as fallback
+function generateDeterministicIdFromToken(token: string): string {
+  const hash = createHash('md5').update(token).digest('hex');
+  
+  const letters = 'ABCDEFGHJKLMNOPQRSTUVWXYZ';
+  const numbers = '123456789';
+  
+  let result = '';
+  
+  for (let i = 0; i < 3; i++) {
+    const index = parseInt(hash.substring(i * 2, i * 2 + 2), 16) % letters.length;
+    result += letters[index];
+  }
+  
+  for (let i = 3; i < 6; i++) {
+    const index = parseInt(hash.substring(i * 2, i * 2 + 2), 16) % numbers.length;
+    result += numbers[index];
+  }
+  
+  return result;
 }
 
 export async function POST(request: NextRequest) {
@@ -24,7 +39,6 @@ export async function POST(request: NextRequest) {
 
     if (!encryptedToken) {
       console.log('❌ No encrypted token provided');
-      // Even for missing token, return success for demo
       return NextResponse.json({
         success: true,
         displayId: 'DEMO01',
@@ -40,7 +54,7 @@ export async function POST(request: NextRequest) {
       userId = await getUserFromEncryptedToken(encryptedToken);
       console.log('👤 User ID from token:', userId);
     } catch (error) {
-      console.log('👤 No real user found for token (this is expected for fake IDs)');
+      console.log('👤 No real user found for token');
     }
 
     if (userId) {
@@ -59,7 +73,6 @@ export async function POST(request: NextRequest) {
         console.log('👤 User found:', user ? 'YES' : 'NO');
 
         if (user && user.status === 'ACTIVE') {
-          // Check if user has active subscription
           const subscription = await prisma.subscription.findFirst({
             where: {
               userId,
@@ -73,7 +86,6 @@ export async function POST(request: NextRequest) {
           console.log('💳 Subscription found:', subscription ? 'YES' : 'NO');
 
           if (subscription) {
-            // Get the unique ID record
             const uniqueIdRecord = await prisma.uniqueId.findUnique({
               where: { encryptedToken },
               select: { 
@@ -103,15 +115,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // If we get here, it's either a fake ID or invalid real ID
-    // ALWAYS return success for demo purposes
-    const fakeDisplayId = generateDisplayIdFromToken(encryptedToken);
-    
-    console.log('✅ Fake ID validation - returning success anyway');
+    // For fake tokens, return a deterministic ID
+    // The client should handle getting the original ID from sessionStorage
+    console.log('✅ Fake ID validation - returning deterministic ID');
 
     const responseData = {
       success: true,
-      displayId: fakeDisplayId,
+      displayId: generateDeterministicIdFromToken(encryptedToken),
       isRealUser: false
     };
 
@@ -121,14 +131,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('❌ Error in validate API:', error);
     
-    // Even on error, ALWAYS return success for demo purposes
-    const fakeDisplayId = generateDisplayIdFromToken(encryptedToken || 'error');
-    
-    console.log('✅ Error case - still returning success for demo');
-    
     return NextResponse.json({
       success: true,
-      displayId: fakeDisplayId,
+      displayId: 'ERROR1',
       isRealUser: false
     });
   }

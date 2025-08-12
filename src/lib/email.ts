@@ -7,7 +7,7 @@ const createTransporter = () => {
   
   if (process.env.EMAIL_PROVIDER === 'gmail' && process.env.EMAIL_USER && process.env.EMAIL_APP_PASSWORD) {
     console.log('📧 Using Gmail SMTP for:', process.env.EMAIL_USER);
-    return nodemailer.createTransporter({
+    return nodemailer.createTransport({  // FIXED: createTransport (not createTransporter)
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
@@ -15,7 +15,7 @@ const createTransporter = () => {
       }
     });
   } else if (process.env.EMAIL_PROVIDER === 'sendgrid') {
-    return nodemailer.createTransporter({
+    return nodemailer.createTransport({
       host: 'smtp.sendgrid.net',
       port: 587,
       auth: {
@@ -24,7 +24,7 @@ const createTransporter = () => {
       }
     });
   } else if (process.env.EMAIL_PROVIDER === 'smtp') {
-    return nodemailer.createTransporter({
+    return nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587'),
       secure: process.env.SMTP_SECURE === 'true',
@@ -36,7 +36,7 @@ const createTransporter = () => {
   } else {
     // For development - use Ethereal Email (fake SMTP)
     console.log('📧 Using development mode - emails will be logged only');
-    return nodemailer.createTransporter({
+    return nodemailer.createTransport({
       host: 'smtp.ethereal.email',
       port: 587,
       auth: {
@@ -504,6 +504,67 @@ Your subscription will renew automatically. You can manage it anytime in your da
 
   } catch (error) {
     console.error('❌ Payment success email sending failed:', error);
+    
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+export async function sendReminderEmail({
+  email,
+  firstName,
+  emailType,
+  subject,
+  registrationStep,
+  selectedPlanId,
+  userId
+}: {
+  email: string;
+  firstName: string;
+  emailType: 'PLAN_SELECTION' | 'PAYMENT_RETRY' | 'FINAL_REMINDER';
+  subject: string;
+  registrationStep: string;
+  selectedPlanId?: string;
+  userId: number;
+}) {
+  try {
+    console.log('📧 Sending reminder email to:', email);
+
+    const transporter = createTransporter();
+    
+    // Create different content based on email type
+    let content = '';
+    switch (emailType) {
+      case 'PLAN_SELECTION':
+        content = `Hi ${firstName}, you're almost done! Complete your iamlost.help registration and start protecting your items.`;
+        break;
+      case 'PAYMENT_RETRY':
+        content = `Hi ${firstName}, complete your payment to activate your item protection service.`;
+        break;
+      case 'FINAL_REMINDER':
+        content = `Hi ${firstName}, this is your final reminder to complete your iamlost.help registration.`;
+        break;
+    }
+
+    const info = await transporter.sendMail({
+      from: `"iamlost.help" <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'noreply@iamlost.help'}>`,
+      to: email,
+      subject: subject,
+      text: content,
+      html: `<p>${content}</p>`
+    });
+
+    console.log('✅ Reminder email sent successfully!');
+    
+    return {
+      success: true,
+      messageId: info.messageId
+    };
+
+  } catch (error) {
+    console.error('❌ Reminder email sending failed:', error);
     
     return {
       success: false,
