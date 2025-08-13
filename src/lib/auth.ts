@@ -106,7 +106,7 @@ export async function registerUser({
   return { user, token };
 }
 
-// User login
+// User login - FIXED to allow PENDING users
 export async function loginUser(email: string, password: string): Promise<AuthResult> {
   // Find user by email
   const user = await prisma.user.findUnique({
@@ -126,8 +126,9 @@ export async function loginUser(email: string, password: string): Promise<AuthRe
     throw new Error('Invalid email or password');
   }
 
-  // Check if user account is active
-  if (user.status !== 'ACTIVE') {
+  // FIXED: Allow both ACTIVE and PENDING users to log in
+  // PENDING users need to complete their registration
+  if (user.status !== 'ACTIVE' && user.status !== 'PENDING') {
     throw new Error('Account is suspended or deleted');
   }
 
@@ -146,7 +147,7 @@ export async function loginUser(email: string, password: string): Promise<AuthRe
   return { user: userWithoutPassword, token };
 }
 
-// Get user from token
+// Get user from token - FIXED to allow PENDING users
 export async function getUserFromToken(token: string): Promise<User | null> {
   const decoded = verifyToken(token);
   if (!decoded) return null;
@@ -154,7 +155,7 @@ export async function getUserFromToken(token: string): Promise<User | null> {
   const user = await prisma.user.findUnique({
     where: { 
       id: decoded.userId,
-      status: 'ACTIVE'
+      status: { in: ['ACTIVE', 'PENDING'] } // Allow both ACTIVE and PENDING
     },
     select: {
       id: true,
