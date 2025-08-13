@@ -1,4 +1,4 @@
-// src/app/found/components/FoundItemForm.tsx - FIXED VERSION (No ID Flicker)
+// src/app/found/components/FoundItemForm.tsx - FIXED VERSION (Token Issue)
 'use client';
 import { useState, useEffect } from 'react';
 import { normalizeDisplayId, validateAndSuggestId } from '@/lib/unique-id';
@@ -64,10 +64,10 @@ export default function FoundItemForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError || '');
   const [success, setSuccess] = useState(false);
-  // FIXED: Initialize currentEncryptedToken from prop, not from complex logic
-  const [currentEncryptedToken, setCurrentEncryptedToken] = useState(encryptedToken || '');
-  const [displayIdFromUrl, setDisplayIdFromUrl] = useState(''); // FIXED: Back to displayIdFromUrl
-  const [isLoadingDisplayId, setIsLoadingDisplayId] = useState(false); // FIXED: Add loading state
+  // FIXED: Get the actual token from URL path if not provided as prop
+  const [currentEncryptedToken, setCurrentEncryptedToken] = useState('');
+  const [displayIdFromUrl, setDisplayIdFromUrl] = useState('');
+  const [isLoadingDisplayId, setIsLoadingDisplayId] = useState(false);
   
   // Form data with enhanced fields
   const [finderName, setFinderName] = useState('');
@@ -84,38 +84,79 @@ export default function FoundItemForm({
 
   // Get display ID from URL params when we have an encrypted token
   useEffect(() => {
-    // FIXED: Get token from URL path if not provided as prop
+    // FIXED: Get the actual token from URL path
     const pathToken = typeof window !== 'undefined' ? window.location.pathname.split('/found/')[1] : null;
-    const tokenToUse = encryptedToken || currentEncryptedToken || pathToken;
+    let tokenToUse = encryptedToken || pathToken;
     
-    console.log('🔍 Token detection:', { encryptedToken, currentEncryptedToken, pathToken, tokenToUse });
+    // FIXED: Decode URL-encoded token if necessary
+    if (tokenToUse && tokenToUse.includes('%')) {
+      tokenToUse = decodeURIComponent(tokenToUse);
+    }
+    
+    console.log('🔍 Token detection:', { encryptedToken, pathToken, tokenToUse });
     
     if (tokenToUse && tokenToUse !== '[token]') {
-      // FIXED: Set the current token and loading state
+      // FIXED: Set the current token IMMEDIATELY
       setCurrentEncryptedToken(tokenToUse);
       setIsLoadingDisplayId(true);
       
-      // Try to get the original ID from sessionStorage first (for fake IDs)
+      // FIXED: For fake tokens, try to get the original ID from sessionStorage
       if (typeof window !== 'undefined') {
         const originalId = sessionStorage.getItem('foundItemOriginalId');
+        console.log('📦 Checking sessionStorage for originalId:', originalId);
         if (originalId) {
-          console.log('📦 Found original ID in sessionStorage:', originalId);
+          console.log('📦 Using original ID from sessionStorage:', originalId);
           setDisplayIdFromUrl(originalId);
-          setIsLoadingDisplayId(false); // FIXED: Set loading to false
-          // Clear it after use to prevent reuse
-          sessionStorage.removeItem('foundItemOriginalId');
+          setIsLoadingDisplayId(false);
           return;
         }
       }
       
-      // Fallback: fetch from server for real IDs
+      // If no original ID in sessionStorage, check if this token came from the homepage navigation
+      // and try to reverse-lookup the original ID
       fetchDisplayIdFromServer(tokenToUse);
+    } else {
+      // FIXED: If no token, try to get it from window location immediately
+      if (typeof window !== 'undefined') {
+        const currentPath = window.location.pathname;
+        if (currentPath.startsWith('/found/')) {
+          const extractedToken = currentPath.split('/found/')[1];
+          if (extractedToken && extractedToken !== '[token]') {
+            console.log('🔍 Extracted token from current path:', extractedToken.substring(0, 20) + '...');
+            setCurrentEncryptedToken(extractedToken);
+            setIsLoadingDisplayId(true);
+            
+            // Check for original ID in sessionStorage first
+            const originalId = sessionStorage.getItem('foundItemOriginalId');
+            if (originalId) {
+              console.log('📦 Using stored original ID:', originalId);
+              setDisplayIdFromUrl(originalId);
+              setIsLoadingDisplayId(false);
+            } else {
+              fetchDisplayIdFromServer(extractedToken);
+            }
+          }
+        }
+      }
     }
-  }, [encryptedToken, currentEncryptedToken]);
+  }, [encryptedToken]);
 
   const fetchDisplayIdFromServer = async (token: string) => {
     try {
       console.log('🔍 Fetching display ID for token:', token.substring(0, 20) + '...');
+      
+      // FIXED: Always check sessionStorage first for the original ID (for fake tokens)
+      if (typeof window !== 'undefined') {
+        const storedOriginalId = sessionStorage.getItem('foundItemOriginalId');
+        console.log('📦 Checking sessionStorage for originalId:', storedOriginalId);
+        if (storedOriginalId) {
+          console.log('📦 Using stored original ID from sessionStorage:', storedOriginalId);
+          setDisplayIdFromUrl(storedOriginalId);
+          setIsLoadingDisplayId(false);
+          // DON'T clear it immediately - keep it for potential reuse
+          return;
+        }
+      }
       
       const response = await fetch('/api/found-item/validate', {
         method: 'POST',
@@ -128,6 +169,16 @@ export default function FoundItemForm({
       if (data.success && data.displayId) {
         console.log('✅ Got display ID from server:', data.displayId);
         setDisplayIdFromUrl(data.displayId);
+        
+        // FIXED: If this is not a real user and we got a deterministic ID, 
+        // check if we have the original ID stored somewhere
+        if (!data.isRealUser && typeof window !== 'undefined') {
+          const storedOriginalId = sessionStorage.getItem('foundItemOriginalId');
+          if (storedOriginalId) {
+            console.log('📦 Overriding server ID with stored original:', storedOriginalId);
+            setDisplayIdFromUrl(storedOriginalId);
+          }
+        }
       } else {
         console.log('❌ Failed to get display ID from server');
         setDisplayIdFromUrl('FOUND');
@@ -136,7 +187,7 @@ export default function FoundItemForm({
       console.error('Error fetching display ID:', error);
       setDisplayIdFromUrl('FOUND');
     } finally {
-      setIsLoadingDisplayId(false); // FIXED: Always set loading to false
+      setIsLoadingDisplayId(false);
     }
   };
 
@@ -214,14 +265,26 @@ export default function FoundItemForm({
     setError('');
 
     try {
-      // FIXED: Debug log to see what token we're sending
-      console.log('🚀 Submitting report with token:', currentEncryptedToken);
+      // FIXED: Double check we have a token before submitting
+      const tokenToSubmit = currentEncryptedToken || encryptedToken;
+      console.log('🚀 Submitting report with token:', tokenToSubmit?.substring(0, 20) + '...');
+      console.log('🔍 Current state:', { 
+        currentEncryptedToken: currentEncryptedToken?.substring(0, 20) + '...', 
+        encryptedToken: encryptedToken?.substring(0, 20) + '...',
+        tokenToSubmit: tokenToSubmit?.substring(0, 20) + '...'
+      });
+      
+      if (!tokenToSubmit) {
+        console.error('❌ No token available for submission');
+        setError('Unable to identify the item. Please try again.');
+        return;
+      }
       
       const response = await fetch('/api/found-item/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          encryptedToken: currentEncryptedToken, // FIXED: Explicitly use currentEncryptedToken variable
+          encryptedToken: tokenToSubmit, // FIXED: Use the validated token
           finderName: finderName.trim(),
           finderEmail: finderEmail.trim(),
           finderPhone: finderPhone.trim(),
@@ -360,7 +423,6 @@ export default function FoundItemForm({
                 <div className="bg-white rounded-xl p-4 border-2 border-green-300">
                   <div className="text-sm text-green-600 font-medium mb-1">Item ID</div>
                   <div className="text-2xl font-mono font-bold text-green-800 tracking-wider">
-                    {/* FIXED: Show loading or the actual ID - back to simple logic */}
                     {displayIdFromUrl || prefilledId || 'LOADING...'}
                   </div>
                 </div>
