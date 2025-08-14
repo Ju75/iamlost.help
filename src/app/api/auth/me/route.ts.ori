@@ -1,4 +1,4 @@
-// src/app/api/auth/me/route.ts - SIMPLIFIED VERSION
+// src/app/api/auth/me/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromToken } from '@/lib/auth';
 
@@ -27,7 +27,6 @@ export async function GET(request: NextRequest) {
       user
     });
   } catch (error: any) {
-    console.error('Auth me error:', error);
     return NextResponse.json(
       { error: 'Authentication failed' },
       { status: 401 }

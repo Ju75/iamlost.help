@@ -1,13 +1,12 @@
-// src/app/api/auth/register-step1/route.ts - FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { hashPassword, requireAuth } from '@/lib/auth';
+import { hashPassword } from '@/lib/auth';
 import { validateData } from '@/lib/validation';
 import Joi from 'joi';
 
 const prisma = new PrismaClient();
 
-// Enhanced registration schema (same as before)
+// Enhanced registration schema
 const enhancedRegisterSchema = Joi.object({
   email: Joi.string().email().lowercase().trim().required(),
   emailConfirmation: Joi.string().valid(Joi.ref('email')).required(),
@@ -155,40 +154,5 @@ export async function POST(request: NextRequest) {
       { error: error.message || 'Failed to save information' },
       { status: 500 }
     );
-  }
-}
-
-// ADDED: GET handler for authenticated users to continue registration
-export async function GET(request: NextRequest) {
-  try {
-    const token = request.cookies.get('auth-token')?.value;
-    
-    if (!token) {
-      // No authentication, redirect to plan selection page
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/register?step=plan`);
-    }
-
-    const user = await requireAuth(token);
-    
-    if (user.status !== 'PENDING') {
-      // User is already active, redirect to dashboard
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/dashboard`);
-    }
-
-    if (user.registrationStep === 'INFO_COLLECTED') {
-      // User needs to select a plan, redirect to plan selection
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/register?step=plan&user_id=${user.id}`);
-    } else if (user.registrationStep === 'PLAN_SELECTED') {
-      // User needs to complete payment
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/register?step=payment&user_id=${user.id}`);
-    } else {
-      // Restart registration flow
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/register`);
-    }
-
-  } catch (error: any) {
-    console.error('❌ GET register-step1 error:', error);
-    // Redirect to login on error
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/login`);
   }
 }

@@ -1,4 +1,4 @@
-// src/components/PricingPage.tsx
+// src/components/PricingPage.tsx - FIXED VERSION
 'use client';
 import { useState } from 'react';
 import { useAuth } from './auth/AuthProvider';
@@ -92,23 +92,73 @@ export default function PricingPage() {
     setError('');
 
     try {
-      const response = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planId }),
-        credentials: 'include'
-      });
+      // FIXED: Check if user is PENDING (completing registration)
+      if (user.status === 'PENDING') {
+        console.log('Pending user selecting plan, using registration flow...');
+        
+        // Step 1: Update user's plan selection
+        const step2Response = await fetch('/api/auth/register-step2', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            userId: user.id, 
+            selectedPlanId: planId 
+          }),
+          credentials: 'include'
+        });
 
-      const data = await response.json();
+        const step2Data = await step2Response.json();
+        
+        if (!step2Response.ok) {
+          throw new Error(step2Data.error || 'Failed to save plan selection');
+        }
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to create checkout session');
+        console.log('Plan selection saved, proceeding to payment...');
+
+        // Step 2: Complete registration with payment
+        const response = await fetch('/api/auth/register-complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id }),
+          credentials: 'include'
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to create checkout session');
+        }
+
+        // Redirect to Stripe checkout
+        if (data.checkoutUrl) {
+          window.location.href = data.checkoutUrl;
+        } else {
+          throw new Error('No checkout URL received');
+        }
+
+      } else {
+        // User is ACTIVE, use regular checkout flow
+        console.log('Active user subscribing, using regular checkout...');
+        
+        const response = await fetch('/api/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ planId }),
+          credentials: 'include'
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to create checkout session');
+        }
+
+        // Redirect to Stripe Checkout
+        window.location.href = data.url;
       }
 
-      // Redirect to Stripe Checkout
-      window.location.href = data.url;
-
     } catch (err: any) {
+      console.error('Subscription error:', err);
       setError(err.message);
       setLoading(null);
     }
@@ -128,6 +178,11 @@ export default function PricingPage() {
                 <>
                   <span className="text-sm text-gray-700">
                     Welcome, {user.firstName || user.email}!
+                    {user.status === 'PENDING' && (
+                      <span className="ml-2 text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded-full">
+                        Completing Registration
+                      </span>
+                    )}
                   </span>
                   <Link 
                     href="/dashboard"
@@ -164,6 +219,22 @@ export default function PricingPage() {
             All plans include unlimited QR codes, instant notifications, and anonymous contact system. 
             Start protecting your items today!
           </p>
+          
+          {/* Show registration progress for pending users */}
+          {user?.status === 'PENDING' && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-8 max-w-2xl mx-auto">
+              <div className="flex items-center justify-center gap-2 text-blue-800">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                <span className="font-semibold">Step 2 of 3: Choose Your Plan</span>
+              </div>
+              <p className="text-blue-700 text-sm mt-1">
+                You're almost done! Select a plan below to complete your registration.
+              </p>
+            </div>
+          )}
+
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg inline-block mb-8">
               {error}
@@ -243,9 +314,9 @@ export default function PricingPage() {
                       <div className="flex items-center justify-center">
                         <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        Processing...
+                        {user?.status === 'PENDING' ? 'Completing...' : 'Processing...'}
                       </div>
                     ) : (
                       `Choose ${plan.name}`

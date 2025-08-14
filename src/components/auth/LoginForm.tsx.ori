@@ -29,34 +29,11 @@ export default function LoginForm() {
     setError('');
 
     try {
-      // BEST PRACTICE: Get user status directly from login response
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-        credentials: 'include'
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Login failed');
-      }
-
-      if (data.success && data.user) {
-        console.log('Login successful for user:', data.user.email, 'Status:', data.user.status);
-        
-        // Redirect immediately based on user status from login response
-        if (data.user.status === 'PENDING' || data.user.status === 'EXPIRED') {
-          console.log('Redirecting to pricing...');
-          window.location.href = '/pricing';
-        } else {
-          console.log('Redirecting to dashboard...');
-          window.location.href = '/dashboard';
-        }
-      } else {
-        throw new Error('Login failed');
-      }
+      await login(formData.email, formData.password);
+      
+      // FIXED: Simple redirect after successful login
+      console.log('Login successful, redirecting to dashboard...');
+      window.location.href = '/dashboard';
       
     } catch (err: any) {
       console.error('Login error:', err);
